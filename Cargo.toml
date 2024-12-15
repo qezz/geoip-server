@@ -10,6 +10,7 @@ axum = { version = "0.7.5", features = ["macros"] }
 maxminddb = "0.24.0"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1.0"
+simple-metrics = { git = "https://github.com/qezz/simple-metrics.git", rev = "ed0ca84ee91b9d5da5daa37006f3a2eeb9a7355f" }
 tokio = { version = "1", features = ["rt-multi-thread"] }
 tower = { version = "0.5.2", default-features = false }
 tower-http = { version = "0.5.2", features = ["trace"] }
