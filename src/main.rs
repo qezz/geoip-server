@@ -1,10 +1,12 @@
 pub mod api;
+pub mod metrics;
 pub mod model;
 pub mod server;
 
 use std::sync::Arc;
 
 use server::AppContext;
+use tokio::sync::Mutex;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 fn init_tracing() {
@@ -30,7 +32,7 @@ async fn main() {
     let db_reader = maxminddb::Reader::open_readfile(db_path).unwrap();
 
     let context = AppContext::new(Some("geoip"), db_reader);
-    let app_state = Arc::new(context);
+    let app_state = Arc::new(Mutex::new(context));
 
     let listen_addr = "127.0.0.1:9124";
     tracing::info!("Starting server on {}", listen_addr);

@@ -15,3 +15,24 @@ impl Location {
         }
     }
 }
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct LookupEntry {
+    pub ip_str: String,
+    pub loc: Location,
+}
+
+impl LookupEntry {
+    pub fn from_city(ip: &str, city: maxminddb::geoip2::City) -> Option<Self> {
+        if let Some(loc) = city.location {
+            let loc = Location::from_city_loc(loc)?;
+
+            return Some(Self {
+                ip_str: ip.to_string(),
+                loc,
+            });
+        }
+
+        None
+    }
+}

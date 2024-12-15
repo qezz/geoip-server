@@ -1,4 +1,4 @@
-use std::{net::IpAddr, str::FromStr, sync::Arc};
+use std::{collections::BTreeMap, net::IpAddr, str::FromStr, sync::Arc};
 
 use axum::{
     http::StatusCode,
@@ -6,7 +6,11 @@ use axum::{
     Router,
     {response::IntoResponse, Extension},
 };
+use simple_metrics::RenderIntoMetrics;
+use tokio::sync::Mutex;
 use tower_http::trace::TraceLayer;
+
+use crate::{metrics::MetricsData, model::LookupEntry};
 
 #[derive(Debug, Clone)]
 pub enum Error {
@@ -26,9 +30,16 @@ impl From<maxminddb::MaxMindDBError> for Error {
     }
 }
 
+impl From<&str> for Error {
+    fn from(e: &str) -> Self {
+        Self::ApplicationError(e.to_string())
+    }
+}
+
 pub struct AppContext {
     pub namespace: Option<String>,
     pub db_reader: maxminddb::Reader<std::vec::Vec<u8>>,
+    pub looked_up: BTreeMap<String, LookupEntry>,
 }
 
 impl AppContext {
@@ -36,33 +47,62 @@ impl AppContext {
         Self {
             namespace: namespace.map(|r| r.to_string()),
             db_reader,
+            looked_up: BTreeMap::new(),
         }
     }
 
-    pub fn lookup_ip(&self, ip: &str) -> Result<maxminddb::geoip2::City, Error> {
+    pub fn lookup_ip(&mut self, ip: &str) -> Result<LookupEntry, Error> {
         let parsed: IpAddr = ip
             .parse()
             .map_err(|e: <IpAddr as FromStr>::Err| Error::ApplicationError(e.to_string()))?;
 
         let city: maxminddb::geoip2::City = self.db_reader.lookup(parsed)?;
-        Ok(city)
+
+        let maybe_entry: Result<LookupEntry, &str> =
+            LookupEntry::from_city(ip, city).ok_or("can't parse");
+
+        let entry = maybe_entry?;
+        self.looked_up.insert(ip.to_owned(), entry.clone());
+
+        Ok(entry)
     }
 }
 
 #[axum::debug_handler]
 pub async fn health(
-    Extension(_app_context): Extension<Arc<AppContext>>,
+    Extension(_app_context): Extension<Arc<Mutex<AppContext>>>,
 ) -> Result<axum::response::Response, Error> {
     Ok((StatusCode::OK, "OK").into_response())
 }
 
-pub fn build_app(state: Arc<AppContext>) -> Router {
+#[axum::debug_handler]
+pub async fn metrics(
+    Extension(app_context): Extension<Arc<Mutex<AppContext>>>,
+) -> Result<axum::response::Response, Error> {
+    let ac = app_context.lock().await;
+    let looked_up = &ac.looked_up;
+    let namespace = &ac.namespace.clone();
+
+    let mut metrics_data = MetricsData::new();
+
+    for (_, item) in looked_up.iter() {
+        metrics_data.looked_up.push(item.clone());
+    }
+
+    let store = metrics_data.into_metric_store();
+    let data = store.render_into_metrics(namespace.as_deref());
+
+    Ok((StatusCode::OK, data).into_response())
+}
+
+pub fn build_app(state: Arc<Mutex<AppContext>>) -> Router {
     let service = tower::ServiceBuilder::new()
         .layer(Extension(state))
         .layer(TraceLayer::new_for_http());
 
     Router::new()
         .route("/health", get(health))
+        .route("/metrics", get(metrics))
         .nest("/api/v1", crate::api::new_router())
         .layer(service)
 }

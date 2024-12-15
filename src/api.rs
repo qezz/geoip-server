@@ -3,24 +3,21 @@ use std::sync::Arc;
 use axum::{
     extract::Path, http::StatusCode, response::IntoResponse, routing::get, Extension, Json, Router,
 };
+use tokio::sync::Mutex;
 
-use crate::{
-    model::Location,
-    server::{AppContext, Error},
-};
+use crate::server::{AppContext, Error};
 
 #[axum::debug_handler]
 pub async fn lookup(
-    Extension(app_context): Extension<Arc<AppContext>>,
+    Extension(app_context): Extension<Arc<Mutex<AppContext>>>,
     Path(ip_str): Path<String>,
 ) -> Result<axum::response::Response, Error> {
-    let city = app_context.lookup_ip(&ip_str).unwrap();
+    let mut ac = app_context.lock().await;
+    let entry = ac.lookup_ip(&ip_str).unwrap();
 
-    tracing::info!("City: {:?}", city.location);
+    tracing::info!("Loc: {:?}", entry.loc);
 
-    let loc = Location::from_city_loc(city.location.unwrap()).unwrap();
-
-    Ok((StatusCode::OK, Json(loc)).into_response())
+    Ok((StatusCode::OK, Json(entry)).into_response())
 }
 
 pub fn new_router() -> Router {
