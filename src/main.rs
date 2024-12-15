@@ -1,6 +1,6 @@
 pub mod api;
-pub mod server;
 pub mod model;
+pub mod server;
 
 use std::sync::Arc;
 

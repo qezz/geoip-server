@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{net::IpAddr, str::FromStr, sync::Arc};
 
 use axum::{
     http::StatusCode,
@@ -11,11 +11,18 @@ use tower_http::trace::TraceLayer;
 #[derive(Debug, Clone)]
 pub enum Error {
     ApplicationError(String),
+    MaxMindError(Arc<maxminddb::MaxMindDBError>),
 }
 
 impl IntoResponse for Error {
     fn into_response(self) -> axum::response::Response {
         (StatusCode::INTERNAL_SERVER_ERROR, format!("{self:?}")).into_response()
+    }
+}
+
+impl From<maxminddb::MaxMindDBError> for Error {
+    fn from(e: maxminddb::MaxMindDBError) -> Self {
+        Self::MaxMindError(Arc::new(e))
     }
 }
 
@@ -30,6 +37,15 @@ impl AppContext {
             namespace: namespace.map(|r| r.to_string()),
             db_reader,
         }
+    }
+
+    pub fn lookup_ip(&self, ip: &str) -> Result<maxminddb::geoip2::City, Error> {
+        let parsed: IpAddr = ip
+            .parse()
+            .map_err(|e: <IpAddr as FromStr>::Err| Error::ApplicationError(e.to_string()))?;
+
+        let city: maxminddb::geoip2::City = self.db_reader.lookup(parsed)?;
+        Ok(city)
     }
 }
 
